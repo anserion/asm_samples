@@ -1,0 +1,254 @@
+BITS 32
+
+%include "messages.inc"
+%include "winstyles.inc"
+
+global _main
+extern _printf
+extern _scanf
+extern _sprintf
+
+extern _MessageBoxA@16
+extern _GetModuleHandleA@4
+extern _CreateWindowExA@48
+extern _LoadIconA@8
+extern _LoadCursorA@8
+extern _DefWindowProcA@16
+extern _PostQuitMessage@4
+extern _RegisterClassExA@4
+extern _ShowWindow@8
+extern _UpdateWindow@4
+extern _GetMessageA@16
+extern _TranslateMessage@4
+extern _DispatchMessageA@4
+extern _BeginPaint@8
+extern _EndPaint@8
+extern _GetClientRect@8
+extern _DrawTextA@20
+
+segment .stack use 32
+stack times 1000 db 0
+
+segment .data use 32
+wc times 12 dd 0
+msg times 6 dd 0
+
+winclass db "CLASS32",0
+winhwnd dd 0
+progtitle db "Win_1",0
+
+fmt_dec db "%d",13,10,0
+;===============================
+
+segment .code use 32
+_main:
+   push ebp
+   mov ebp,esp
+;================
+regclass:	
+	mov dword [wc+WNDCLASSEX.cbSize],48
+	mov dword [wc+WNDCLASSEX.style],CS_HREDRAW+CS_VREDRAW+CS_GLOBALCLASS
+	mov dword [wc+WNDCLASSEX.lpfnWndProc],winproc
+	mov dword [wc+WNDCLASSEX.cbClsExtra],0
+        mov dword [wc+WNDCLASSEX.cbWndExtra],0
+
+	call _GetModuleHandleA@4
+	mov dword [wc+WNDCLASSEX.hInstance],eax
+	
+	push dword IDI_APPLICATION
+	push dword 0
+	call _LoadIconA@8
+	mov dword [wc+WNDCLASSEX.hIcon],eax
+
+	push dword IDC_ARROW
+	push dword 0
+	call _LoadCursorA@8
+	mov dword [wc+WNDCLASSEX.hCursor],eax
+	
+	push dword 0
+	mov eax,COLOR_WINDOW
+	mov dword [wc+WNDCLASSEX.hbrBackground],eax
+	mov dword [wc+WNDCLASSEX.lpszMenuName],0
+	mov dword [wc+WNDCLASSEX.lpszClassName],winclass
+
+	push dword IDI_APPLICATION
+	push dword 0
+	call _LoadIconA@8
+	mov dword [wc+WNDCLASSEX.hIconSm],eax
+
+	push dword wc
+	call _RegisterClassExA@4
+
+;Создание окна зарегистрированного класса
+	push dword 0
+	push dword [wc+WNDCLASSEX.hInstance]
+	push dword 0
+	push dword 0
+	push dword 320
+	push dword 240
+	push dword 100
+	push dword 100
+	push dword WS_OVERLAPPEDWINDOW
+	push dword progtitle
+	push dword winclass
+	push dword 0
+	call _CreateWindowExA@48
+
+	cmp eax,0
+	je near .exitprog
+
+	mov dword [winhwnd],eax
+	push dword SW_SHOWNORMAL
+	push dword eax
+	call _ShowWindow@8
+	push dword [winhwnd]
+	call _UpdateWindow@4
+
+;Цикл обработки сообщений
+.msgloop:
+	push dword 0
+	push dword 0
+	push dword 0
+	push dword msg
+	call _GetMessageA@16
+	
+	cmp eax,0
+	je near .exitprog
+	
+	push dword msg
+	call _TranslateMessage@4
+	push dword msg
+	call _DispatchMessageA@4
+	jmp near .msgloop
+
+;Точка выхода из программы
+.exitprog:
+	push dword .exit_msg
+	call _printf
+	mov esp,ebp
+        pop ebp
+        ret
+.exit_msg db "Выход из программы",13,10,0
+
+;===============================
+;оконная процедура
+; ebp+20 - lparam
+; ebp+16 - wparam
+; ebp+12 - msg
+; ebp+8  - hwnd
+winproc:
+	push ebp
+	mov ebp,esp
+;===============================
+	cmp dword [ebp+12], WM_DESTROY
+	je near .wmdestroy
+	cmp dword [ebp+12], WM_CREATE
+	je near .wmcreate
+;===============================
+	cmp dword [ebp+12], WM_PAINT
+	je near .paint
+
+	cmp dword [ebp+12], WM_LBUTTONDOWN
+	je near .mouse_down
+;===============================
+;Обработчики сообщений
+.default:
+	push dword [ebp+20]
+	push dword [ebp+16]
+	push dword [ebp+12]
+	push dword [ebp+8]
+	call _DefWindowProcA@16
+	jmp near .finish
+;===============================
+.paint:
+	push dword [ebp+8]
+	call DrawHello
+	jmp near .finish
+
+.mouse_down:
+	push dword [ebp+8]
+	call show_mess
+	jmp near .finish
+;===============================
+.wmcreate:
+	push dword .create_window_msg
+	call _printf
+	mov dword eax,0
+	jmp near .finish
+.create_window_msg db "создано главное окно",13,10,0
+
+.wmdestroy:
+	push dword 0
+	call _PostQuitMessage@4
+	push dword .destroy_window_msg
+	call _printf
+	mov dword eax,0
+	jmp near .finish
+.destroy_window_msg db "уничтожено главное окно",13,10,0
+
+.finish:
+	mov esp,ebp
+	pop ebp
+	ret
+;===============================
+
+;подпрограмма выводит строку текста в центре формы
+; ebp+8 - hwnd
+; ebp-4 - hdc
+; ebp-68 - ps
+; ebp-84 - rect
+DrawHello:
+	push ebp
+	mov ebp,esp
+	sub esp,84
+;----------------------------------
+	lea dword eax,[ebp-68]
+	push dword eax
+	push dword [ebp+8]
+	call _BeginPaint@8
+	mov dword [ebp-4],eax   ; hdc=BeginPaint(hwnd, &ps)
+
+	lea dword eax,[ebp-84]
+	push dword eax
+	push dword [ebp+8]
+	call _GetClientRect@8 ; GetClientRect(hwnd, &rect)
+
+	push dword DT_SINGLELINE+DT_CENTER+DT_VCENTER
+	lea dword eax,[ebp-84]
+	push dword eax
+	push dword -1
+	push dword .message
+	push dword [ebp-4]
+	call _DrawTextA@20 ; DrawText(hdc,.message,-1,&rect, flags)
+
+	lea dword eax,[ebp-68]
+	push dword eax
+	push dword [ebp+8]
+	call _EndPaint@8 ; EndPaint(hwnd, &ps)
+;----------------------------------
+	mov esp,ebp
+	pop ebp
+	ret
+.message db "Hello",0
+;===============================
+
+;подпрограмма вывода диалогового окна с приветствием
+; [ebp+8] - hwnd родительского окна
+show_mess:
+	push ebp
+	mov ebp,esp
+
+	push dword MB_OK
+	push dword .caption
+	push dword .message
+	push dword [ebp+8]
+	call _MessageBoxA@16
+
+	mov esp,ebp
+	pop ebp
+	ret
+.caption db "Hello",0
+.message db "Dialog window (eng)",13,10
+.m2 db      "Диалоговое окно (DOS)",13,10
+.m3 db      "─шрыюуютюх юъэю (Win)",0
+;===============================
